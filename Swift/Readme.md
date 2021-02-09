@@ -199,7 +199,44 @@
 * 在C/Objective-C语言中，case语句不会因匹配成功而中断，如果不进行手动控制，switch结构中的case子句会依次进行匹配执行。
 
 * Swift语句优化了这一点，一个case语句匹配成功后，会自动跳出switch结构，如果不加特殊处理，switch结构中的分支只会被执行一个或者一个也不执行。 
-* 
+
+
+
+###### 8.流程跳转
+
+* fallthrough语句是Swift中特有的一种流程控制语句。
+
+* Swift语言中的switch-case结构匹配到一个case后，会自动中断后面所有case的匹配操作，如果在实际开发中，需要switch-case结构不自动进行中断操作，可以使用fallthrough语句。
+
+  ```
+  var tuple = (0,0)
+  switch tuple {
+  case (0,0):
+      print("Sure")
+      fallthrough
+  case(_,0):
+      print("Sim")
+      fallthrough
+  case(0...3,0...3):
+      print("SIM")
+  default:
+      print("")
+  }
+  ```
+
+* guard-else语句也被称为守护语句，顾名思义，其作用就是确保某个条件成立才允许其后的代码执行
+
+  ```
+  func funcOne(param:Int){
+      guard param > 0 else {
+          return
+      }
+      
+      print("guard")
+  }
+  ```
+
+  
 
 
 
