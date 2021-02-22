@@ -59,6 +59,8 @@ assign和weak的区别主要是weak修饰的指针变量在所指的对象释放
 
 对于@synthesize和@dynamic，由于前者明确让编译器自动合成存取方法和默认变量名，而后者明确禁止编译器自动合成存取方法和默认变量名，所以两者语义冲突，不可同时使用。
 
+如果 @synthesize和 @dynamic都没写，那么默认的就是@syntheszie var = _var;
+
 
 
 ###### 6. 下面这段代码有什么问题?
@@ -337,15 +339,55 @@ unrecognized selector错误指无法识别的selector，即receiver无法处理�
 
 
 
+###### 29. 循环引用
+
+循环引用的实质：多个对象相互之间有强引用，不能释放让系统回收。
+
+如何解决循环引用？
+
+1、避免产生循环引用，通常是将 strong 引用改为 weak 引用。 比如在修饰属性时用weak 在block内调用对象方法时，使用其弱引用，这里可以使用两个宏
+
+\#define WS(weakSelf) __weak __typeof(&*self)weakSelf = self; // 弱引用
+
+\#define ST(strongSelf) __strong __typeof(&*self)strongSelf = weakSelf; //使用这个要先声明weakSelf 还可以使用__block来修饰变量 在MRC下，__block不会增加其引用计数，避免了循环引用 在ARC下，__block修饰对象会被强引用，无法避免循环引用，需要手动解除。
+
+2、在合适时机去手动断开循环引用。 通常我们使用第一种。
+
+- 代理(delegate)循环引用属于相互循环引用
+
+  delegate 是iOS中开发中比较常遇到的循环引用，一般在声明delegate的时候都要使用弱引用 weak,或者assign,当然怎么选择使用assign还是weak，MRC的话只能用assign，在ARC的情况下最好使用weak，因为weak修饰的变量在释放后自动指向nil，防止野指针存在
+
+- NSTimer循环引用属于相互循环使用
+
+  在控制器内，创建NSTimer作为其属性，由于定时器创建后也会强引用该控制器对象，那么该对象和定时器就相互循环引用了。 如何解决呢？ 这里我们可以使用手动断开循环引用： 如果是不重复定时器，在回调方法里将定时器invalidate并置为nil即可。 如果是重复定时器，在合适的位置将其invalidate并置为nil即可
+
+3、block循环引用
+
+由于block会对block中的对象进行持有操作,就相当于持有了其中的对象，而如果此时block中的对象又持有了该block，则会造成循环引用。 解决方案就是使用__weak修饰self即可
+
+并不是所有block都会造成循环引用。 只有被强引用了的block才会产生循环引用 而比如dispatch_async(dispatch_get_main_queue(), ^{}),[UIView animateWithDuration:1 animations:^{}]这些系统方法等 或者block并不是其属性而是临时变量,即栈block
+
+还有一种场景，在block执行开始时self对象还未被释放，而执行过程中，self被释放了，由于是用weak修饰的，那么weakSelf也被释放了，此时在block里访问weakSelf时，就可能会发生错误(向nil对象发消息并不会崩溃，但也没任何效果)。 对于这种场景，应该在block中对 对象使用__strong修饰，使得在block期间对 对象持有，block执行结束后，解除其持有。
 
 
 
+###### 29. block和delegate的区别
+
+* delegate运行成本低，block的运行成本高
+
+  block出栈需要将使用的数据从栈内存拷贝到堆内存，当然对象的话就是加计数，使用完或者block置nil后才消除。delegate只是保存了一个对象指针，直接回调，没有额外消耗。就像C的函数指针，只多做了一个查表动作。
+
+* delegate更适用于多个回调方法（3个以上），block则适用于1，2个回调时。
 
 
 
+###### 30. runtime具体应用
 
-
-
+* 利用关联对象（AssociatedObject）给分类添加属性
+* 遍历类的所有成员变量（修改textfield的占位文字颜色、字典转模型、自动归档解档）
+* 交换方法实现（交换系统的方法）
+* 利用消息转发机制解决方法找不到的异常问题
+* KVC 字典转模型
 
 
 
