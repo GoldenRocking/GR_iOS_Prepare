@@ -335,27 +335,197 @@ unrecognized selector错误指无法识别的selector，即receiver无法处理�
 
 在runtime库中，对象是用C语言中的结构体表示，而方法用C语言中的函数来实现，另外也加入了一些额外的特性。这些结构体和函数被Runtime函数封装后，开发者就可以利用运行时特性在程序运行阶段动态地创建、查看、修改类、对象和它们的方法。
 
+在runtime中，Objective-C中的类是由Class类型来表示的，通过objc/objc.h可以查看到Class类型实际上是指向objc_class结构的指针。
+
+objc_class结构体的定义如下：
+
+```
+struct objc_class {
+     Class _Nonnull isa OBJC_ISA_AVAILABILITY;
+     
+     #if!__OBJC2__
+       Class _Nullable super_class OBJC2_UNAVAILABLE;
+       const char * _Nonnull name  OBJC2_UNAVAILABLE;
+       long version OBJC2_UNAVAILABLE;
+       long info OBJC2_UNAVAILABLE;
+       long instance_size OBJC2_UNAVAILABLE;
+       struct objc_ivar_list * _Nullable ivars  OBJC2_UNAVAILABLE;
+       struct objc_method_list * _Nullable * _Nullable methodLists OBJC2_UNAVAILABLE;
+      struct objc_cache * _Nonnull cache   OBJC2_UNAVAILABLE;
+      struct objc_protocol_list * _Nullable protocols OBJC2_UNAVAILABLE;
+    #endif
+} OBJC2_UNAVAILABLE;
+   
+```
+
+* isa：在Objective-C中，所有的类自身也是一个对象，这个对象的Class里面也存在一个isa指针。对象需要通过isa指针找到它的类，类需要通过isa找到它的元类（Meta Class）。元类可以理解为类对象的类，每个类都会有一个单独的元类。事实上，元类也是一个类，它也存在isa指针，它的isa指针指向父类的元类。也就是说，任何NSObject继承体系下的元类都使用NSObject的元类作为自己的所属类，而基类的元类的isa指针是指向它自己。这样就形成了一个完美的闭环。isa指针在调用实例方法和类方法的时候会起到重要的作用。
+* super_class：指向该类的父类，如果该类已经是最顶层的类（Root Class），那么super_class就是nil。
+* cache：它主要用于缓存类中最近使用的方法。当开发者调用过一个方法后，runtime会将这个方法缓存到cache列表中，如果再次调用这个方法，那么runtime就会优先去cache中查找，如果cache没有，那么就会去methodLists中查找该方法。这样就大大提高了调用方法的效率。
+* ivars：指向该类的成员变量链表。
+* methodLists：指向方法定义的链表。
+* protocols：指向协议链表。
 
 
 
 
 
+在objc_object结构体中只有一个字段，即指向其类的isa指针。通过这个指针，runtime会找到这个实例对象所属的类。当创建一个特定类的实例对象时，分配的内存包含一个objc_object数据结构，然后是类的实例变量的数据。
+
+
+
+###### 29. 如何使用runtime动态添加一个类
+
+![image-20210215164132393](images/image-20210215164132393.png)
 
 
 
 
 
+###### 30. 如何理解消息传递机制
+
+对Objective-C对象调用方法的操作通常称为“消息传递”。在Objective-C中，如果向某对象传递消息，那么就会使用动态绑定机制来决定需要调用的方法。在底层，所有方法都是普通的C语言函数，然而对象收到消息之后，究竟该调用哪个方法则完全由runtime来决定，有时甚至可以在运行期改变方法的实现。
+
+消息的接收者（receiver）和参数（parameter）合起来称为“消息”（message）。在编译阶段，会将上面的代码转换成C语言函数调用，所调用的函数是消息传递机制中的核心函数，叫作objc_megSend.
+
+objc_msgSend函数将消息接收者和方法名作为其基础参数。其中，参数self代表消息接收者，参数SEL代表方法名（selector，又称选择器）。每个类中的方法列表（methodLists）类似于一张表格，其中的指针都会指向方法的实现，而方法名是查表时所用的键。objc_msg Send函数正是通过这张表格来寻找应该执行的方法并跳转至其实现的。objc_msgSend函数会根据接收者和方法来调用适当的方法。基本流程如下：
+
+1.objc_msgSend函数通过isa指针在接收者所属的类中搜寻方法缓存列表（cache）和方法列表，如果能找到与方法名相符合的方法，那么就跳转至其实现代码。
+
+2.若是找不到，那么就会通过super_class指针沿着类的继承体系继续向上查找，如果能够找到合适的方法，那么就会跳转。
+
+3.如果上面两步都无法找到相符的方法，那么就会执行消息转发（message forwarding）机制。
 
 
 
+###### 31.SEL
+
+SEL又称选择器，表示的是一个方法的selector的指针。
+
+Objective-C在编译时，会根据每个方法的名字、参数列表，生成一个唯一的整型标识，这个标识就是SEL。正因为其具有唯一性，所以在Objective-C的同一个类中，不能存在两个同名的方法，即使参数类型不同也不行。
+
+开发者可以在运行时添加新的selector，也可以在运行时获取已存在的selector。
+
+工程中所有的SEL会组成一个Set集合，Set的特点就是具有唯一性，因此SEL也是唯一的。如果想要查找某个方法，那么只需要找到这个方法所对应的SEL就可以了，SEL实际上就是根据方法名Hash转换的一个字符串。
 
 
 
+###### 32.IMP
+
+IMP实际上也是个函数指针，它指向方法实现的首地址，可以把它理解为方法的具体实现。
+
+通过SEL指针查找方法，实际上就是查找方法的IMP。由于每个方法对应唯一的SEL，所以可以通过SEL方便快速准确地获取它所对应的IMP。取得IMP之后，就可以像调用普通的C语言函数一样来使用这个函数指针了。
+
+结构体objc_method包含了一个SEL和IMP，实际上它相当于在SEL和IMP之间作了一个映射。
 
 
 
+###### 33.isKindOfClass和isMemberOfClass有什么区别与联系
+
+isKindOfClass和isMemberOfClass都是Objective-C语言的内省特性方法，用于实现动态类型识别（判断某个对象是否属于某个动态类型）。
+
+isKindOfClass的判“真”要求相对宽松，它是判断某个对象是否是Class类型的实例或其子类的实例。
+
+isMemberOfClass的判“真”要求相对更高，比isKindOfClass严格的是，isMemberOfClass只判断某个对象是否是Class类型的实例，不放宽到其子类。
 
 
 
+###### 34. Objective-C有私有方法吗？有私有变量吗
 
+表面上看，Objective-C中是可以实现私有的变量和方法的，即将它们隐藏不暴露在头文件中，不可以显式地直接访问，但是Objective-C中这种私有并不是绝对的私有，例如即使将变量和方法隐藏在.m实现文件中，开发者仍然可以利用KVC或runtime运行时机制强行访问没有暴露在头文件的变量或方法。
+
+Objective-C中实现变量和方法“私有”的方式主要有两种。
+
+1.在类的头文件中声明私有变量。
+
+2.在.m实现文件头部的类扩展区域定义私有属性或方法，其中方法可不用声明，直接在实现文件中实现即可，只要不在头文件声明的方法都对外不可见。
+
+
+
+暴力访问对象私有方法：
+
+KVC访问变量不受私有权限的限制。
+
+运行时可以使用class_copyIvarList函数获取类对象的Ivar变量列表，然后可使用object_getIvar和object_setIvar运行时函数对变量进行暴力访问。
+
+Runtime暴力访问对象私有方法：和访问私有变量类似，这里使用class_copyMethodList运行时函数获取类对象中的方法列表，然后使用performSelector函数执行某个方法。
+
+
+
+###### 35.Objective-C中的类别与扩展机制
+
+类别是Objective-C语言中的一个灵活的类扩展机制，用于在不获悉、不改变原来代码的情况下往一个已经存在的类中添加新的方法，只需要知道这个类的公开接口，而不需要知道类的源代码。类别只能为已存在的类添加新的功能扩展方法，而不能添加新的属性。类别扩展的新方法有更高的优先级，会覆盖类中同名的已有方法。类别的设计体现了面向对象的核心原则，即开放封闭原则（Open Closed Principle，OCP）。对扩展开放，对修改封闭，从而降低代码的耦合度。
+
+类别（Category）与继承（Inheritance）的区别如下：
+
+1.子类继承是进行类扩展的另一种常用方法，当然基于子类继承的扩展更加自由、正式，既可以新增属性，也可以新增方法。类别可以在不获悉、不改变原来代码的情况下往里面添加新的方法，但也只能添加方法，不能添加属性，属于功能上的扩展。类别扩展的优点是不需要创建一个新的类，而是在系统中已有的类上直接扩展、覆写，不需要更改类就可以添加并使用扩展方法。
+
+2.相对于子类继承扩展，类别的另一明显优势就是实现了功能的局部化封装，扩展的功能只会在本类被引用时看到。
+
+
+
+类别与类扩展的区别如下：类别和类扩展的明显区别在于，类扩展可以添加属性。另外，类扩展添加的方法是必须要实现的。类扩展可以认为是一个私有的匿名的类别，因为类扩展定义在.m文件头部，添加的属性和方法都没有暴露在头文件，所以在不考虑运行时特性的前提下这些扩展属性和方法只能在类内部使用，一定程度上可以说是实现了私有的机制。
+
+
+
+###### 36.Objective-C中类别特性的作用及其局限性是什么
+
+Objective-C中类别特性的作用如下：
+
+1.可以将类的实现分散到多个不同文件或多个不同框架中（扩充新的方法）。
+
+2.可以创建对私有方法的前向引用。
+
+3.可以向对象添加非正式协议。
+
+
+
+Objective-C中类别特性的局限性如下：
+
+1.类别只能向原类中添加新的方法，且只能添加而不能删除或修改原方法，不能向原类中添加新的属性。
+
+2.类别向原类中添加的方法是全局有效的而且优先级最高，如果和原类的方法重名，那么会无条件覆盖掉原来的方法，造成难以发现的潜在危险。因此，使用类别添加方法一定注意保证是单纯的添加新方法，避免覆盖原来的方法（可以通过添加该类别的方法前缀来防止冲突）。
+
+
+
+###### 37.为什么类别只能添加扩展方法而不能添加属性变量
+
+在类别中扩展属性不能成功的原因是无法在类别中取得属性的加下画线的实例变量名，导致无法手动实现实例变量的存取方法。在类别中定义了属性后，属性其实也成功添加到了类的属性列表中，但编译器只为其声明了存取方法，没有实现，同时又没有合成加下画线的实例变量名，导致无法访问实例变量也无法自己手动实现其存取方法，对于一个不能访问的属性，则失去了其存在的意义。
+
+如果使用运行时的机制，那么开发者其实可以强行实现类别中属性的存取方法，实现在类别中扩展属性。
+
+
+
+###### 38.Method Swizzling魔法
+
+Objective-C的运行时特性提供了一种称作Method Swizzling的方法利器，利用它可以更加随心所欲地在运行时期间对编译器已经实现的方法再次动手脚，主要包括：交换类中某两个方法的实现、重新添加或替换某个方法的具体实现。
+
+Method Swizzling主要用于在运行时对编译器编译好的方法再次进行编辑，应用场景主要有以下4种。
+
+1.替换类中某两个类方法或实例方法的实现
+
+替换函数：method_exchangeImplementations(method1,method2)。
+
+2.重新设置类中某个方法的实现设置函数：method_setImplementation(method,IMP)
+
+3.替换类中某个方法的实现替换方法实现函数：class_replaceMethod(Class cls,SELname,IMP imp,const char*types)。
+
+4.在运行时为类添加新的方法添加函数：class_addMethod()。
+
+
+
+###### 39.如何使用runtime进行方法交换
+
+runtime中的Method Swizzling被称为黑魔法，它可以将两个方法的实现交换。
+
+
+
+###### 40.一个Objective-C对象的isa指针指向什么?有什么作用?
+
+Objective-C实例对象的isa指针是指向它的类对象的。Objective-C中有3个层次的对象：实例对象（Instance）、类对象（Class）和元类（MetaClass）。Class即自定义的类，是实例对象的类对象，而类对象又是其对应元类的实例对象。它们的关系如图所示。
+
+![image-20210215174540431](images/image-20210215174540431.png)
+
+
+
+isa指针的作用是通过它可以找到对应类对象或元类中的方法（对象可接收的方法列表）。
 
